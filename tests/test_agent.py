@@ -9,6 +9,7 @@ from core.tools import (
     list_bookings, modify_booking, list_minutes
 )
 
+# 确保数据库表已创建（包括新增的会议纪要表）
 init_db()
 
 TEST_CASES = [

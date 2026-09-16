@@ -128,13 +128,16 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
         return (f"{start.strftime('%m月%d日')} {start_time}-{end_time} 没有能容纳{num_people}人的会议室。"
                 f"建议尝试其他时间段，或使用查询工具看看有没有稍小的会议室可以加座。")
 
+    # 解析必需设备
     required = [e.strip() for e in required_equipment.split(",") if e.strip()] if required_equipment else []
 
+    # 多维度评分
     scored = []
     for room in available:
         score = 0.0
         reasons = []
 
+        # 1. 容量匹配度（40分）：人数刚好略大于需求最佳，过大浪费扣分
         capacity_ratio = room.capacity / max(num_people, 1)
         if 1.0 <= capacity_ratio <= 1.3:
             score += 40
@@ -149,6 +152,7 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
             score += 0
             reasons.append("容量不足")
 
+        # 2. 设备匹配度（30分）
         room_equip = [e.strip() for e in room.equipment.split(",") if e.strip()]
         if required:
             matched = sum(1 for e in required if e in room_equip)
@@ -161,7 +165,7 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
             else:
                 reasons.append("设备不满足需求")
         else:
-            score += 15
+            score += 15  # 无特殊设备需求时，设备齐全的加基础分
             if len(room_equip) >= 3:
                 score += 10
                 reasons.append("设备齐全")
@@ -169,6 +173,7 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
                 score += 5
                 reasons.append("设备较齐全")
 
+        # 3. 位置偏好（20分）
         if location_preference:
             if location_preference in room.location:
                 score += 20
@@ -180,10 +185,12 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
                 score += 0
                 reasons.append("位置不符偏好")
         else:
-            score += 10
+            score += 10  # 无偏好时给中间分
 
+        # 4. 楼层便利性（10分）：楼层越低越方便（假设）
         try:
             floor_num = int(''.join(c for c in room.name if c.isdigit())[:1])
+            # 3-4楼适中，2楼次之，越高越不方便
             if 2 <= floor_num <= 3:
                 score += 10
                 reasons.append("楼层适中")
@@ -198,6 +205,7 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
 
         scored.append((score, room, reasons))
 
+    # 按分数降序排列
     scored.sort(key=lambda x: x[0], reverse=True)
     top3 = scored[:3]
 
@@ -206,7 +214,7 @@ def recommend_room(date: str, start_time: str, end_time: str, num_people: int,
     lines.append("")
 
     for i, (score, room, reasons) in enumerate(top3, 1):
-        stars = "★" * int(round(score / 20))
+        stars = "★" * int(round(score / 20))  # 5星制
         lines.append(f"  第{i}名：{room.name}  {stars}（综合评分：{score:.0f}/100）")
         lines.append(f"        容量：{room.capacity}人  |  设备：{room.equipment}")
         lines.append(f"        位置：{room.location}")
@@ -455,6 +463,7 @@ def generate_minutes(booking_id: int, raw_notes: str, host: str = "",
         room = db.query(Room).filter(Room.id == booking.room_id).first()
         room_name = room.name if room else "未知"
 
+        # 调用 LLM 生成结构化纪要
         from core.config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
         from langchain_openai import ChatOpenAI
 
@@ -508,6 +517,7 @@ def generate_minutes(booking_id: int, raw_notes: str, host: str = "",
         response = llm.invoke(prompt)
         minutes_text = response.content.strip()
 
+        # 解析纪要内容并存储到数据库
         summary = ""
         key_points = ""
         action_items = ""
